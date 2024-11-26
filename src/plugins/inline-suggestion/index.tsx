@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import { $createSuggestionNode, $isSuggestionNode, SuggestionNode, uuid } from './SuggestionNode'
+import { $createSuggestionNode, SuggestionNode, uuid } from './SuggestionNode'
 import { realmPlugin } from '../../RealmWithPlugins'
 import { addLexicalNode$, activeEditor$, addExportVisitor$, addImportVisitor$, addActivePlugin$, addComposerChild$ } from '../core'
 import { Action, Cell, Signal, useCellValue, usePublisher, withLatestFrom } from '@mdxeditor/gurx'
@@ -29,7 +29,6 @@ import React from 'react'
 import { mergeRegister } from '@lexical/utils'
 import { $isAtNodeEnd } from '@lexical/selection'
 import * as Popover from '@radix-ui/react-popover'
-import { $findMatchingParent } from '@lexical/utils'
 
 interface StartSuggestionParameters {
   context: string
@@ -47,11 +46,18 @@ interface SuggestionResult {
   text: string
 }
 
-type SuggestionService = (context: string) => Promise<string>
+export type SuggestionService = (context: string) => Promise<string>
 
 let existingSuggestionKey: NodeKey | null = null
 
-export const defaultState = { loading: false, index: 0, text: '', startAt: -1, endAt: 0, context: '' }
+export const defaultState = {
+  loading: false,
+  index: 0,
+  text: '',
+  startAt: -1,
+  endAt: 0,
+  context: ''
+}
 
 export const KEY_UP_COMMAND = createCommand('KEY_UP_COMMAND')
 
@@ -65,7 +71,7 @@ function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (..
   }
 }
 
-function getPartialMatchRange(text: string, partial: string) {
+function rangeMatcher(text: string, partial: string) {
   const partialLower = partial.toLocaleLowerCase()
   const textLower = text.toLocaleLowerCase()
   const len = partial.length
@@ -77,7 +83,7 @@ function getPartialMatchRange(text: string, partial: string) {
   }
   const matchedPartial = partialLower.slice(i + 1)
   const trimMatchedPartial = matchedPartial.trim()
-  if (trimMatchedPartial !== '') {
+  if (trimMatchedPartial !== '' && textLower.startsWith(matchedPartial)) {
     const startAt = textLower.indexOf(matchedPartial)
     if (startAt === -1) {
       return { startAt: -1, endAt: 0 }
@@ -94,18 +100,25 @@ export const suggestionService$ = Cell<SuggestionService | null>(null)
 
 export const suggestionState$ = Cell<SuggestionState>(defaultState)
 
+export const regenerateSuggestion$ = Action((r) => {
+  r.sub(r.pipe(regenerateSuggestion$, withLatestFrom(suggestionState$)), ([, state]) => {
+    const context = state.context
+    r.pub(clearSuggestion$)
+    r.pub(startSuggestion$, { context })
+  })
+})
+
 export const startSuggestion$ = Signal<StartSuggestionParameters>((r) => {
   r.sub(
     startSuggestion$,
-    debounce((_values: StartSuggestionParameters) => {
-      console.log('start$')
+    debounce((values: StartSuggestionParameters) => {
       const suggestionService = r.getValue(suggestionService$)
       if (!suggestionService) {
         throw new Error('No suggestion service')
       }
       const state = r.getValue(suggestionState$)
-      r.pub(suggestionState$, { ...state, loading: true, context: _values.context })
-      suggestionService(_values.context)
+      r.pub(suggestionState$, { ...state, context: values.context })
+      suggestionService(values.context)
         .then((response: string) => {
           r.pub(createSuggestion$, { text: response })
         })
@@ -119,7 +132,6 @@ export const startSuggestion$ = Signal<StartSuggestionParameters>((r) => {
 export const clearSuggestion$ = Action((r) => {
   r.sub(r.pipe(clearSuggestion$, withLatestFrom(activeEditor$)), ([_, theEditor]) => {
     theEditor?.update(() => {
-      console.log('clear$')
       r.pub(suggestionState$, defaultState)
       if (existingSuggestionKey !== null) {
         const suggestionNode = $getNodeByKey(existingSuggestionKey)
@@ -135,7 +147,6 @@ export const clearSuggestion$ = Action((r) => {
 export const updateSuggestion$ = Signal<{ startAt: number; endAt: number; context: string }>((r) => {
   r.sub(r.pipe(updateSuggestion$, withLatestFrom(suggestionState$, activeEditor$)), ([values, state, theEditor]) => {
     theEditor?.update(() => {
-      console.log('update$')
       const { startAt, endAt, context } = values
       r.pub(suggestionState$, { ...state, startAt, endAt, context })
       const node = $createSuggestionNode(startAt > -1 ? state.text.slice(endAt) : state.text)
@@ -164,7 +175,6 @@ export const updateSuggestion$ = Signal<{ startAt: number; endAt: number; contex
 export const acceptSuggestion$ = Action((r) => {
   r.sub(r.pipe(acceptSuggestion$, withLatestFrom(suggestionState$, activeEditor$)), ([, state, theEditor]) => {
     theEditor?.update(() => {
-      console.log('accept$', state)
       if (existingSuggestionKey !== null) {
         const suggestionNode = $getNodeByKey(existingSuggestionKey)
         if (suggestionNode) {
@@ -181,8 +191,7 @@ export const acceptSuggestion$ = Action((r) => {
 
 export const createSuggestion$ = Signal<SuggestionResult>((r) => {
   r.sub(r.pipe(createSuggestion$, withLatestFrom(activeEditor$, suggestionState$)), ([values, theEditor, state]) => {
-    console.log('async create$', values.text)
-    const { startAt, endAt } = getPartialMatchRange(values.text, state.context)
+    const { startAt, endAt } = rangeMatcher(values.text, state.context)
     r.pub(suggestionState$, { ...state, loading: false, text: values.text, startAt, endAt })
     theEditor?.update(
       () => {
@@ -208,49 +217,46 @@ export const createSuggestion$ = Signal<SuggestionResult>((r) => {
   })
 })
 
-const useStaticMemo = (target: Record<string, any>) => {
-  const ref = useRef<typeof target>(target)
-  Object.entries(target).forEach(([key, value]) => {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    ref.current[key] = value
-  })
-  return ref
-}
-
 const FloatingTooltip = () => {
   const [editor] = useLexicalComposerContext()
+  const acceptSuggestion = usePublisher(acceptSuggestion$)
+  const regenerateSuggestion = usePublisher(regenerateSuggestion$)
   const ref = useRef<HTMLDivElement>(null)
   const state = useCellValue(suggestionState$)
   const open = !state.loading && state.text.length > 0 && state.text.length > state.endAt
-  const [position, setPosition] = useState<Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>>({ left: 0, top: 0, width: 0, height: 0 })
+  const [position, setPosition] = useState<Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0
+  })
 
   useEffect(() => {
     if (open) {
-      editor.update(() => {
-        if (existingSuggestionKey) {
-          const suggestionNode = $getNodeByKey(existingSuggestionKey)
-          if (suggestionNode) {
-            const nativeSelection = window.getSelection()
-            const nativeAnchor = nativeSelection?.anchorNode
-            if (nativeAnchor && editor.getRootElement()?.contains(nativeAnchor)) {
-              const domRect: DOMRect | undefined = nativeAnchor.parentElement?.getBoundingClientRect()
-              if (domRect) {
-                setPosition({
-                  left: domRect.left,
-                  top: domRect.top,
-                  width: domRect.width,
-                  height: domRect.height
-                })
+      setTimeout(() => {
+        editor.update(() => {
+          if (existingSuggestionKey) {
+            const suggestionNode = $getNodeByKey(existingSuggestionKey)
+            if (suggestionNode) {
+              const nativeSuggestionNode = document.querySelector('.inline-suggestion-node')
+              if (nativeSuggestionNode) {
+                const editorRect: DOMRect | undefined = editor.getRootElement()?.getBoundingClientRect()
+                const domRect: DOMRect | undefined = nativeSuggestionNode.closest('p')?.getBoundingClientRect()
+                if (domRect && editorRect) {
+                  setPosition({
+                    top: domRect.top,
+                    height: domRect.height + 10,
+                    left: editorRect.left,
+                    width: editorRect.width
+                  })
+                }
               }
             }
           }
-        }
+        })
       })
     }
   }, [editor, open, state])
-
-  // arrow character
-  // right: \u2192
 
   return (
     <Popover.Root open={open}>
@@ -258,7 +264,7 @@ const FloatingTooltip = () => {
         <div ref={ref} style={{ position: 'absolute', pointerEvents: 'none', ...position }}></div>
       </Popover.Anchor>
       <Popover.Portal>
-        <Popover.Content side="right" align="start">
+        <Popover.Content side="bottom" align="center" collisionPadding={{ bottom: 65 }}>
           <div
             tabIndex={-1}
             style={{
@@ -272,10 +278,20 @@ const FloatingTooltip = () => {
               transform: 'translateY(-100%)'
             }}
           >
-            <button tabIndex={-1}>
+            <button
+              tabIndex={-1}
+              onClick={() => {
+                acceptSuggestion()
+              }}
+            >
               Accept <code style={{ border: '1px solid #ccc', padding: '1px', fontSize: 10 }}>TAB</code>
             </button>
-            <button tabIndex={-1}>
+            <button
+              tabIndex={-1}
+              onClick={() => {
+                regenerateSuggestion()
+              }}
+            >
               Accept Word <code style={{ border: '1px solid #ccc', padding: '1px', fontSize: 10 }}>&#8594;</code>
             </button>
           </div>
@@ -305,7 +321,6 @@ const Initialize = () => {
     }
 
     const handleTextChange = () => {
-      console.log('$textChange')
       editor.update(
         () => {
           const selection = $getSelection()
@@ -327,15 +342,14 @@ const Initialize = () => {
 
           if (context) {
             if (!state.loading && state.text.length > 0) {
-              const range = getPartialMatchRange(state.text, context)
-              console.log(range, state.text, context)
+              const range = rangeMatcher(state.text, context)
               if (range.startAt > -1) {
-                updateSuggestion({ ...range, context: context })
+                updateSuggestion({ ...range, context })
                 return
               }
             }
             clearSuggestion()
-            startSuggestion({ context: context })
+            startSuggestion({ context })
           }
         },
         { tag: 'history-merge' }
@@ -343,7 +357,6 @@ const Initialize = () => {
     }
 
     const handleRangeChange: CommandListener<void> = () => {
-      console.log('$keypress')
       editor.update(
         () => {
           const currentSelection = $getSelection()
@@ -371,7 +384,6 @@ const Initialize = () => {
     }
 
     const $handleKeyPressCommand: CommandListener<KeyboardEvent> = (e) => {
-      console.log('$keypress')
       if (existingSuggestionKey !== null) {
         const suggestionNode = $getNodeByKey(existingSuggestionKey)
         if (suggestionNode) {
@@ -398,7 +410,7 @@ const Initialize = () => {
   return <FloatingTooltip />
 }
 
-export const inlineSuggestionPlugin = realmPlugin<{ service: SuggestionService }>({
+const inlineSuggestionPlugin = realmPlugin<{ service: SuggestionService }>({
   init(realm, params) {
     realm.pubIn({
       [addActivePlugin$]: 'inline-suggestion',
@@ -414,3 +426,5 @@ export const inlineSuggestionPlugin = realmPlugin<{ service: SuggestionService }
     realm.pub(suggestionService$, params?.service ?? null)
   }
 })
+
+export default inlineSuggestionPlugin

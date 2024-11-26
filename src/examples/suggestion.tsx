@@ -1,5 +1,5 @@
 import React from 'react'
-import { inlineSuggestionPlugin } from '../plugins/inline-suggestion'
+import inlineSuggestionPlugin from '../plugins/inline-suggestion'
 import { MDXEditor } from '../MDXEditor'
 import { headingsPlugin } from '../plugins/headings'
 
