@@ -264,7 +264,14 @@ const FloatingTooltip = () => {
         <div ref={ref} style={{ position: 'absolute', pointerEvents: 'none', ...position }}></div>
       </Popover.Anchor>
       <Popover.Portal>
-        <Popover.Content side="bottom" align="center" collisionPadding={{ bottom: 65 }}>
+        <Popover.Content
+          side="bottom"
+          align="center"
+          collisionPadding={{ bottom: 65 }}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault()
+          }}
+        >
           <div
             tabIndex={-1}
             style={{
@@ -274,8 +281,8 @@ const FloatingTooltip = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '4px',
-              transform: 'translateY(-100%)'
+              borderRadius: 4,
+              gap: '8px'
             }}
           >
             <button
@@ -284,7 +291,7 @@ const FloatingTooltip = () => {
                 acceptSuggestion()
               }}
             >
-              Accept <code style={{ border: '1px solid #ccc', padding: '1px', fontSize: 10 }}>TAB</code>
+              Accept
             </button>
             <button
               tabIndex={-1}
@@ -292,7 +299,7 @@ const FloatingTooltip = () => {
                 regenerateSuggestion()
               }}
             >
-              Accept Word <code style={{ border: '1px solid #ccc', padding: '1px', fontSize: 10 }}>&#8594;</code>
+              Regenerate
             </button>
           </div>
         </Popover.Content>

@@ -95,7 +95,7 @@ export function $isSuggestionNode(node: LexicalNode | null | undefined): node is
 
 function SuggestionComponent({ value }: { value: string }): JSX.Element {
   return (
-    <span style={{ color: '#ccc' }} spellCheck="false">
+    <span className="inline-suggestion-node" style={{ color: '#ccc' }} spellCheck="false">
       {value}
     </span>
   )
