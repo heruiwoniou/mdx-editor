@@ -1,26 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import React from 'react'
-import { useSharedSuggestionContext } from '@/plugins/inline-suggestion/sharedSuggestionContext'
-import { addClassNamesToElement } from '@lexical/utils'
 import {
-  $applyNodeReplacement,
-  DOMConversionMap,
-  DOMExportOutput,
   EditorConfig,
-  ElementNode,
   LexicalEditor,
   NodeKey,
-  DOMConversionOutput,
-  SerializedElementNode,
-  RangeSelection,
   LexicalNode,
   DecoratorNode,
   Spread,
   SerializedLexicalNode,
   EditorThemeClassName
 } from 'lexical'
-import * as Popover from '@radix-ui/react-popover'
-import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
 
 export type SerializedSuggestionNode = Spread<
   {
@@ -33,7 +22,7 @@ export type SerializedSuggestionNode = Spread<
 export const uuid = Math.random()
   .toString(36)
   .replace(/[^a-z]+/g, '')
-  .substr(0, 5)
+  .substr(0, 10)
 
 /** @noInheritDoc */
 export class SuggestionNode extends DecoratorNode<JSX.Element | null> {
