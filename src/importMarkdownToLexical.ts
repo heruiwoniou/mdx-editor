@@ -108,7 +108,7 @@ export interface MdastTreeImportOptions extends Descriptors {
 
 /** @internal */
 export interface MarkdownParseOptions extends Omit<MdastTreeImportOptions, 'mdastRoot'> {
-  markdown: string
+  markdown: string | null
   syntaxExtensions: NonNullable<ParseOptions['extensions']>
   mdastExtensions: MdastExtensions
 }
@@ -158,6 +158,7 @@ export function importMarkdownToLexical({
   ...descriptors
 }: MarkdownParseOptions): void {
   let mdastRoot: Mdast.Root
+  if (markdown == null) return
   try {
     mdastRoot = fromMarkdown(markdown, {
       extensions: syntaxExtensions,
