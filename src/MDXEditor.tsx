@@ -242,7 +242,7 @@ export interface MDXEditorProps {
    * The markdown to edit. Notice that this is read only when the component is mounted.
    * To change the component content dynamically, use the `MDXEditorMethods.setMarkdown` method.
    */
-  markdown: string
+  markdown?: string
   /**
    * Triggered when the editor value changes. The callback is not throttled, you can use any throttling mechanism
    * if you intend to do auto-saving.
