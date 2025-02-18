@@ -305,6 +305,11 @@ export interface MDXEditorProps {
    * A custom lexical theme to use for the editor.
    */
   lexicalTheme?: EditorThemeClasses
+
+  /**
+   * Whether to disable the shared history plugin (when collab is enabled)
+   */
+  disabledHistory?: boolean
 }
 
 /**
@@ -330,7 +335,8 @@ export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps>((pro
           onError: props.onError ?? noop,
           translation: props.translation ?? defaultTranslation,
           trim: props.trim ?? true,
-          lexicalTheme: props.lexicalTheme
+          lexicalTheme: props.lexicalTheme,
+          disabledHistory: props.disabledHistory ?? false
         }),
         ...(props.plugins ?? [])
       ]}

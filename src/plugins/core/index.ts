@@ -874,6 +874,7 @@ export const corePlugin = realmPlugin<{
   translation: Translation
   trim?: boolean
   lexicalTheme?: EditorThemeClasses
+  disabledHistory?: boolean
 }>({
   init(r, params) {
     const initialMarkdown = params?.initialMarkdown ?? null
@@ -894,7 +895,6 @@ export const corePlugin = realmPlugin<{
         LexicalGenericHTMLVisitor
       ],
 
-      [addComposerChild$]: SharedHistoryPlugin,
       [contentEditableClassName$]: params?.contentEditableClassName,
       [spellCheck$]: params?.spellCheck,
       [toMarkdownOptions$]: params?.toMarkdownOptions,
@@ -907,6 +907,10 @@ export const corePlugin = realmPlugin<{
       [addToMarkdownExtension$]: [mdxJsxToMarkdown(), gfmStrikethroughToMarkdown()],
       [lexicalTheme$]: params?.lexicalTheme ?? lexicalTheme
     })
+
+    if (!params?.disabledHistory) {
+      r.pub(addComposerChild$, SharedHistoryPlugin)
+    }
 
     r.singletonSub(markdownErrorSignal$, params?.onError)
     r.singletonSub(mutableMarkdownSignal$, (value) => {
