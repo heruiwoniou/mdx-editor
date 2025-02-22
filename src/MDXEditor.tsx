@@ -316,7 +316,7 @@ export interface MDXEditorProps {
  * The MDXEditor React component.
  * @group MDXEditor
  */
-export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps>((props, ref) => {
+export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps & { children?: React.ReactNode }>((props, ref) => {
   return (
     <RealmWithPlugins
       plugins={[
@@ -347,6 +347,7 @@ export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps>((pro
         </LexicalProvider>
       </EditorRootElement>
       <Methods mdxRef={ref} />
+      {props.children}
     </RealmWithPlugins>
   )
 })
