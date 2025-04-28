@@ -250,7 +250,7 @@ export interface MDXEditorProps {
    * The markdown to edit. Notice that this is read only when the component is mounted.
    * To change the component content dynamically, use the `MDXEditorMethods.setMarkdown` method.
    */
-  markdown: string
+  markdown?: string
   /**
    * Triggered when the editor value changes. The callback is not throttled, you can use any throttling mechanism
    * if you intend to do auto-saving.
@@ -314,6 +314,11 @@ export interface MDXEditorProps {
   lexicalTheme?: EditorThemeClasses
 
   /**
+   * Whether to disable the shared history plugin (when collab is enabled)
+   */
+  disabledHistory?: boolean
+
+  /**
    * Optional container element to use for rendering editor popups.
    * Defaults to document.body.
    */
@@ -324,7 +329,7 @@ export interface MDXEditorProps {
  * The MDXEditor React component.
  * @group MDXEditor
  */
-export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps>((props, ref) => {
+export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps & { children?: React.ReactNode }>((props, ref) => {
   return (
     <RealmWithPlugins
       plugins={[
@@ -343,7 +348,8 @@ export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps>((pro
           onError: props.onError ?? noop,
           translation: props.translation ?? defaultTranslation,
           trim: props.trim ?? true,
-          lexicalTheme: props.lexicalTheme
+          lexicalTheme: props.lexicalTheme,
+          disabledHistory: props.disabledHistory ?? false
         }),
         ...(props.plugins ?? [])
       ]}
@@ -354,6 +360,7 @@ export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps>((pro
         </LexicalProvider>
       </EditorRootElement>
       <Methods mdxRef={ref} />
+      {props.children}
     </RealmWithPlugins>
   )
 })
