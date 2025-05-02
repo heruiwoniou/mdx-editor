@@ -647,7 +647,7 @@ export const createActiveEditorSubscription$ = Appender(activeEditorSubscription
   ])
 })
 
-function tryImportingMarkdown(r: Realm, node: ImportPoint, markdownValue: string) {
+function tryImportingMarkdown(r: Realm, node: ImportPoint, markdownValue: string | null) {
   try {
     ////////////////////////
     // Import initial value
@@ -868,7 +868,7 @@ export const lexicalTheme$ = Cell<EditorThemeClasses>(lexicalTheme)
 
 /** @internal */
 export const corePlugin = realmPlugin<{
-  initialMarkdown: string
+  initialMarkdown?: string
   contentEditableClassName: string
   spellCheck: boolean
   placeholder?: React.ReactNode
@@ -883,15 +883,16 @@ export const corePlugin = realmPlugin<{
   translation: Translation
   trim?: boolean
   lexicalTheme?: EditorThemeClasses
+  disabledHistory?: boolean
 }>({
   init(r, params) {
-    const initialMarkdown = params?.initialMarkdown ?? ''
+    const initialMarkdown = params?.initialMarkdown ?? null
 
     r.register(createRootEditorSubscription$)
     r.register(createActiveEditorSubscription$)
     r.register(markdownSignal$)
     r.pubIn({
-      [initialMarkdown$]: params?.trim ? initialMarkdown.trim() : initialMarkdown,
+      [initialMarkdown$]: initialMarkdown?.trim ? initialMarkdown.trim() : initialMarkdown,
       [iconComponentFor$]: params?.iconComponentFor,
       [addImportVisitor$]: [MdastRootVisitor, MdastParagraphVisitor, MdastTextVisitor, MdastBreakVisitor, ...formattingVisitors],
       [addLexicalNode$]: [ParagraphNode, TextNode, GenericHTMLNode],
@@ -903,7 +904,6 @@ export const corePlugin = realmPlugin<{
         LexicalGenericHTMLVisitor
       ],
 
-      [addComposerChild$]: SharedHistoryPlugin,
       [contentEditableClassName$]: params?.contentEditableClassName,
       [spellCheck$]: params?.spellCheck,
       [toMarkdownOptions$]: params?.toMarkdownOptions,
@@ -916,6 +916,10 @@ export const corePlugin = realmPlugin<{
       [addToMarkdownExtension$]: [mdxJsxToMarkdown(), gfmStrikethroughToMarkdown()],
       [lexicalTheme$]: params?.lexicalTheme ?? lexicalTheme
     })
+
+    if (!params?.disabledHistory) {
+      r.pub(addComposerChild$, SharedHistoryPlugin)
+    }
 
     r.singletonSub(markdownErrorSignal$, params?.onError)
     r.singletonSub(mutableMarkdownSignal$, (value) => {
@@ -945,7 +949,8 @@ export const corePlugin = realmPlugin<{
     })
 
     newEditor.update(() => {
-      const markdown = params?.initialMarkdown.trim() ?? ''
+      const initialMarkdown = params?.initialMarkdown ?? null
+      const markdown = initialMarkdown?.trim ? initialMarkdown.trim() : initialMarkdown
       tryImportingMarkdown(r, $getRoot(), markdown)
 
       const autoFocusValue = params?.autoFocus
