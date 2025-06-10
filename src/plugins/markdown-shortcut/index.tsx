@@ -1,4 +1,3 @@
-import { realmPlugin } from '../../RealmWithPlugins'
 import {
   BOLD_ITALIC_STAR,
   BOLD_ITALIC_UNDERSCORE,
@@ -11,19 +10,21 @@ import {
   ITALIC_STAR,
   ITALIC_UNDERSCORE,
   LINK,
+  MultilineElementTransformer,
   ORDERED_LIST,
   QUOTE,
-  TextFormatTransformer,
-  TextMatchTransformer,
+  Transformer,
   UNORDERED_LIST
 } from '@lexical/markdown'
-import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin.js'
+import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin'
 import { $createHeadingNode, $isHeadingNode, HeadingNode, HeadingTagType } from '@lexical/rich-text'
-import { ElementNode } from 'lexical'
+import { ElementNode, LexicalNode } from 'lexical'
 import React from 'react'
+import { realmPlugin } from '../../RealmWithPlugins'
 import { $createCodeBlockNode, CodeBlockNode } from '../codeblock/CodeBlockNode'
 import { activePlugins$, addComposerChild$, addNestedEditorChild$ } from '../core'
 import { HEADING_LEVEL, allowedHeadingLevels$ } from '../headings'
+import { $createHorizontalRuleNode, $isHorizontalRuleNode, HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode'
 
 /**
  * A plugin that adds markdown shortcuts to the editor.
@@ -50,8 +51,29 @@ const createBlockNode = (createNode: (match: string[]) => ElementNode): ElementT
   }
 }
 
+const THEMATIC_BREAK: ElementTransformer = {
+  dependencies: [HorizontalRuleNode],
+  export: (node: LexicalNode) => {
+    return $isHorizontalRuleNode(node) ? '***' : null
+  },
+  regExp: /^(---|\*\*\*|___)\s?$/,
+  replace: (parentNode, _1, _2, isImport) => {
+    const line = $createHorizontalRuleNode()
+
+    // TODO: Get rid of isImport flag
+    if (isImport || parentNode.getNextSibling() != null) {
+      parentNode.replace(line)
+    } else {
+      parentNode.insertBefore(line)
+    }
+
+    line.selectNext()
+  },
+  type: 'element'
+}
+
 function pickTransformersForActivePlugins(pluginIds: string[], allowedHeadingLevels: readonly HEADING_LEVEL[]) {
-  const transformers: (ElementTransformer | TextFormatTransformer | TextMatchTransformer)[] = [
+  const transformers: Transformer[] = [
     BOLD_ITALIC_STAR,
     BOLD_ITALIC_UNDERSCORE,
     BOLD_STAR,
@@ -89,6 +111,10 @@ function pickTransformersForActivePlugins(pluginIds: string[], allowedHeadingLev
     transformers.push(HEADING)
   }
 
+  if (pluginIds.includes('thematicBreak')) {
+    transformers.push(THEMATIC_BREAK)
+  }
+
   if (pluginIds.includes('quote')) {
     transformers.push(QUOTE)
   }
@@ -101,7 +127,7 @@ function pickTransformersForActivePlugins(pluginIds: string[], allowedHeadingLev
   }
 
   if (pluginIds.includes('codeblock')) {
-    const codeTransformerCopy: ElementTransformer = {
+    const codeTransformerCopy: MultilineElementTransformer = {
       ...CODE,
       dependencies: [CodeBlockNode],
       replace: (parentNode, _children, match) => {

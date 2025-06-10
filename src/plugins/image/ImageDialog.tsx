@@ -31,9 +31,11 @@ export const ImageDialog: React.FC = () => {
     values: state.type === 'editing' ? (state.initialValues as any) : {}
   })
 
+  if (state.type === 'inactive') return null
+
   return (
     <Dialog.Root
-      open={state.type !== 'inactive'}
+      open={true}
       onOpenChange={(open) => {
         if (!open) {
           closeImageDialog()
@@ -51,11 +53,11 @@ export const ImageDialog: React.FC = () => {
         >
           <Dialog.Title>{t('uploadImage.dialogTitle', 'Upload an image')}</Dialog.Title>
           <form
-            onSubmit={(e) => {
-              void handleSubmit(saveImage)(e)
-              reset({ src: '', title: '', altText: '' })
+            onSubmit={async (e) => {
               e.preventDefault()
               e.stopPropagation()
+              await handleSubmit(saveImage)(e)
+              reset({ src: '', title: '', altText: '' })
             }}
             className={styles.multiFieldForm}
           >

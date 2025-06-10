@@ -1,3 +1,4 @@
+import { ImagePlaceholder } from '@/plugins/image/ImagePlaceholder'
 import { $wrapNodeInElement, mergeRegister } from '@lexical/utils'
 import { Action, Cell, Signal, map, mapTo, withLatestFrom } from '@mdxeditor/gurx'
 import {
@@ -31,6 +32,7 @@ import {
   addLexicalNode$,
   createActiveEditorSubscription$
 } from '../core'
+import { EditImageToolbar, EditImageToolbarProps } from './EditImageToolbar'
 import { ImageDialog } from './ImageDialog'
 import { $createImageNode, $isImageNode, CreateImageNodeParameters, ImageNode } from './ImageNode'
 import { LexicalImageVisitor } from './LexicalImageVisitor'
@@ -76,7 +78,7 @@ export type InsertImageParameters = FileImageParameters | SrcImageParameters
  */
 export interface SaveImageParameters extends BaseImageParameters {
   src?: string
-  file: FileList
+  file?: FileList
 }
 
 /**
@@ -163,6 +165,12 @@ export const imageUploadHandler$ = Cell<ImageUploadHandler>(null)
 export const imagePreviewHandler$ = Cell<ImagePreviewHandler>(null)
 
 /**
+ * Holds the image placeholder.
+ * @group Image
+ */
+export const imagePlaceholder$ = Cell<typeof ImagePlaceholder | null>(null)
+
+/**
  * Holds the current state of the image dialog.
  * @group Image
  */
@@ -190,7 +198,7 @@ export const imageDialogState$ = Cell<InactiveImageDialogState | NewImageDialogS
                 r.pub(imageDialogState$, { type: 'inactive' })
               }
 
-        if (values.file.length > 0) {
+        if (values.file && values.file.length > 0) {
           imageUploadHandler?.(values.file.item(0)!)
             .then(handler)
             .catch((e: unknown) => {
@@ -253,8 +261,9 @@ export const imageDialogState$ = Cell<InactiveImageDialogState | NewImageDialogS
               return false // If from web, bail.
             }
 
-            let cbPayload = Array.from(event.clipboardData?.items ?? [])
-            cbPayload = cbPayload.filter((i) => i.type.includes('image')) // Strip out the non-image bits
+            const cbPayload = Array.from(event.clipboardData?.items ?? [])
+            const isMixedPayload = cbPayload.some((item) => !item.type.includes('image'))
+            if (isMixedPayload) return false
 
             if (!cbPayload.length || cbPayload.length === 0) {
               return false
@@ -322,6 +331,12 @@ export const disableImageSettingsButton$ = Cell<boolean>(false)
 export const saveImage$ = Signal<SaveImageParameters>()
 
 /**
+ * Holds the custom EditImageToolbar component.
+ * @group Image
+ */
+export const editImageToolbarComponent$ = Cell<React.FC<EditImageToolbarProps>>(EditImageToolbar)
+
+/**
  * A plugin that adds support for images.
  * @group Image
  */
@@ -332,6 +347,8 @@ export const imagePlugin = realmPlugin<{
   disableImageSettingsButton?: boolean
   imagePreviewHandler?: ImagePreviewHandler
   ImageDialog?: (() => JSX.Element) | React.FC
+  EditImageToolbar?: (() => JSX.Element) | React.FC
+  imagePlaceholder?: (() => JSX.Element) | null
 }>({
   init(realm, params) {
     realm.pubIn({
@@ -343,7 +360,9 @@ export const imagePlugin = realmPlugin<{
       [imageAutocompleteSuggestions$]: params?.imageAutocompleteSuggestions ?? [],
       [disableImageResize$]: Boolean(params?.disableImageResize),
       [disableImageSettingsButton$]: Boolean(params?.disableImageSettingsButton),
-      [imagePreviewHandler$]: params?.imagePreviewHandler ?? null
+      [imagePreviewHandler$]: params?.imagePreviewHandler ?? null,
+      [editImageToolbarComponent$]: params?.EditImageToolbar ?? EditImageToolbar,
+      [imagePlaceholder$]: params?.imagePlaceholder ?? ImagePlaceholder
     })
   },
 
@@ -352,7 +371,9 @@ export const imagePlugin = realmPlugin<{
       [imageUploadHandler$]: params?.imageUploadHandler ?? null,
       [imageAutocompleteSuggestions$]: params?.imageAutocompleteSuggestions ?? [],
       [disableImageResize$]: Boolean(params?.disableImageResize),
-      [imagePreviewHandler$]: params?.imagePreviewHandler ?? null
+      [imagePreviewHandler$]: params?.imagePreviewHandler ?? null,
+      [editImageToolbarComponent$]: params?.EditImageToolbar ?? EditImageToolbar,
+      [imagePlaceholder$]: params?.imagePlaceholder ?? ImagePlaceholder
     })
   }
 })
@@ -429,7 +450,16 @@ function onDrop(event: DragEvent, editor: LexicalEditor, imageUploadHandler: Ima
   if (cbPayload.length > 0) {
     if (imageUploadHandler !== null) {
       event.preventDefault()
-      Promise.all(cbPayload.map((image) => imageUploadHandler(image.getAsFile()!)))
+      Promise.all(
+        cbPayload.map((image) => {
+          if (image.kind === 'string') {
+            return new Promise<string>((rs) => {
+              image.getAsString(rs)
+            })
+          }
+          return imageUploadHandler(image.getAsFile()!)
+        })
+      )
         .then((urls) => {
           urls.forEach((url) => {
             editor.dispatchCommand(INSERT_IMAGE_COMMAND, {

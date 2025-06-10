@@ -2,9 +2,10 @@ import React from 'react'
 
 import type { BaseSelection, LexicalEditor } from 'lexical'
 
-import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext.js'
-import { useLexicalNodeSelection } from '@lexical/react/useLexicalNodeSelection.js'
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext'
+import { useLexicalNodeSelection } from '@lexical/react/useLexicalNodeSelection'
 import { mergeRegister } from '@lexical/utils'
+import { useCellValues } from '@mdxeditor/gurx'
 import classNames from 'classnames'
 import {
   $getNodeByKey,
@@ -20,13 +21,21 @@ import {
   KEY_ESCAPE_COMMAND,
   SELECTION_CHANGE_COMMAND
 } from 'lexical'
-import { disableImageResize$, disableImageSettingsButton$, imagePreviewHandler$, openEditImageDialog$ } from '.'
+import { MdxJsxAttribute, MdxJsxExpressionAttribute } from 'mdast-util-mdx-jsx'
+import { disableImageResize$, editImageToolbarComponent$, imagePlaceholder$ as imagePlaceholderComponent$, imagePreviewHandler$ } from '.'
 import styles from '../../styles/ui.module.css'
-import { iconComponentFor$, readOnly$, useTranslation } from '../core'
+import { readOnly$ } from '../core'
 import { $isImageNode } from './ImageNode'
 import ImageResizer from './ImageResizer'
-import { useCellValues, usePublisher } from '@mdxeditor/gurx'
-import { MdxJsxAttribute, MdxJsxExpressionAttribute } from 'mdast-util-mdx-jsx'
+
+const BROKEN_IMG_URI =
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(/* xml */ `
+    <svg id="imgLoadError" xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <rect x="0" y="0" width="100" height="100" fill="none" stroke="red" stroke-width="4" stroke-dasharray="4" />
+      <text x="50" y="55" text-anchor="middle" font-size="20" fill="red">⚠️</text>
+    </svg>
+`)
 
 export interface ImageEditorProps {
   nodeKey: string
@@ -38,19 +47,29 @@ export interface ImageEditorProps {
   rest: (MdxJsxAttribute | MdxJsxExpressionAttribute)[]
 }
 
-const imageCache = new Set()
-
-function useSuspenseImage(src: string) {
-  if (!imageCache.has(src)) {
-    // eslint-disable-next-line @typescript-eslint/no-throw-literal, @typescript-eslint/only-throw-error
-    throw new Promise((resolve) => {
-      const img = new Image()
-      img.src = src
-      img.onerror = img.onload = () => {
-        imageCache.add(src)
-        resolve(null)
-      }
-    })
+// https://css-tricks.com/pre-caching-image-with-react-suspense/
+const imgCache = {
+  __cache: {} as Record<string, string | Promise<void>>,
+  read(src: string) {
+    if (!this.__cache[src]) {
+      this.__cache[src] = new Promise<void>((resolve) => {
+        const img = new Image()
+        img.onerror = () => {
+          this.__cache[src] = BROKEN_IMG_URI
+          resolve()
+        }
+        img.onload = () => {
+          this.__cache[src] = src
+          resolve()
+        }
+        img.src = src
+      })
+    }
+    if (this.__cache[src] instanceof Promise) {
+      // eslint-disable-next-line @typescript-eslint/no-throw-literal, @typescript-eslint/only-throw-error
+      throw this.__cache[src]
+    }
+    return this.__cache[src] as string
   }
 }
 
@@ -70,13 +89,12 @@ function LazyImage({
   src: string
   width: number | 'inherit'
   height: number | 'inherit'
-}): JSX.Element {
-  useSuspenseImage(src)
+}) {
   return (
     <img
       className={className ?? undefined}
       alt={alt}
-      src={src}
+      src={imgCache.read(src)}
       title={title}
       ref={imageRef}
       draggable="false"
@@ -87,15 +105,14 @@ function LazyImage({
 }
 
 export function ImageEditor({ src, title, alt, nodeKey, width, height, rest }: ImageEditorProps): JSX.Element | null {
-  const [disableImageResize, disableImageSettingsButton, imagePreviewHandler, iconComponentFor, readOnly] = useCellValues(
+  const [ImagePlaceholderComponent, disableImageResize, imagePreviewHandler, readOnly, EditImageToolbar] = useCellValues(
+    imagePlaceholderComponent$,
     disableImageResize$,
-    disableImageSettingsButton$,
     imagePreviewHandler$,
-    iconComponentFor$,
-    readOnly$
+    readOnly$,
+    editImageToolbarComponent$
   )
 
-  const openEditImageDialog = usePublisher(openEditImageDialog$)
   const imageRef = React.useRef<null | HTMLImageElement>(null)
   const buttonRef = React.useRef<HTMLButtonElement | null>(null)
   const [isSelected, setSelected, clearSelection] = useLexicalNodeSelection(nodeKey)
@@ -105,7 +122,6 @@ export function ImageEditor({ src, title, alt, nodeKey, width, height, rest }: I
   const [isResizing, setIsResizing] = React.useState<boolean>(false)
   const [imageSource, setImageSource] = React.useState<string | null>(null)
   const [initialImagePath, setInitialImagePath] = React.useState<string | null>(null)
-  const t = useTranslation()
 
   const onDelete = React.useCallback(
     (payload: KeyboardEvent) => {
@@ -266,7 +282,7 @@ export function ImageEditor({ src, title, alt, nodeKey, width, height, rest }: I
   }, [rest])
 
   return imageSource !== null ? (
-    <React.Suspense fallback={null}>
+    <React.Suspense fallback={ImagePlaceholderComponent ? <ImagePlaceholderComponent /> : null}>
       <div className={styles.imageWrapper} data-editor-block-type="image">
         <div draggable={draggable}>
           <LazyImage
@@ -288,42 +304,13 @@ export function ImageEditor({ src, title, alt, nodeKey, width, height, rest }: I
           <ImageResizer editor={editor} imageRef={imageRef} onResizeStart={onResizeStart} onResizeEnd={onResizeEnd} />
         )}
         {readOnly || (
-          <div className={styles.editImageToolbar}>
-            <button
-              className={styles.iconButton}
-              type="button"
-              title={t('image.delete', 'Delete image')}
-              disabled={readOnly}
-              onClick={(e) => {
-                e.preventDefault()
-                editor.update(() => {
-                  $getNodeByKey(nodeKey)?.remove()
-                })
-              }}
-            >
-              {iconComponentFor('delete_small')}
-            </button>
-            {!disableImageSettingsButton && (
-              <button
-                type="button"
-                className={classNames(styles.iconButton, styles.editImageButton)}
-                title={t('imageEditor.editImage', 'Edit image')}
-                disabled={readOnly}
-                onClick={() => {
-                  openEditImageDialog({
-                    nodeKey: nodeKey,
-                    initialValues: {
-                      src: !initialImagePath ? imageSource : initialImagePath,
-                      title: title ?? '',
-                      altText: alt ?? ''
-                    }
-                  })
-                }}
-              >
-                {iconComponentFor('settings')}
-              </button>
-            )}
-          </div>
+          <EditImageToolbar
+            nodeKey={nodeKey}
+            imageSource={imageSource}
+            initialImagePath={initialImagePath}
+            title={title ?? ''}
+            alt={alt ?? ''}
+          />
         )}
       </div>
     </React.Suspense>

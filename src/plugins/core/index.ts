@@ -9,7 +9,6 @@ import {
   $getRoot,
   $getSelection,
   $insertNodes,
-  $isDecoratorNode,
   $isRangeSelection,
   $isRootOrShadowRoot,
   $setSelection,
@@ -20,7 +19,6 @@ import {
   ElementNode,
   FOCUS_COMMAND,
   FORMAT_TEXT_COMMAND,
-  KEY_DOWN_COMMAND,
   Klass,
   LexicalEditor,
   LexicalNode,
@@ -50,7 +48,6 @@ import {
   UnrecognizedMarkdownConstructError,
   importMarkdownToLexical
 } from '../../importMarkdownToLexical'
-import { controlOrMeta } from '../../utils/detectMac'
 import { noop } from '../../utils/fp'
 import type { JsxComponentDescriptor } from '../jsx'
 import { GenericHTMLNode } from './GenericHTMLNode'
@@ -218,10 +215,16 @@ export const initialMarkdown$ = Cell('')
  */
 export const markdown$ = Cell('')
 
+export const initialMarkdownNormalize$ = Cell(false)
 /** @internal */
 const markdownSignal$ = Signal<string>((r) => {
   r.link(markdown$, markdownSignal$)
-  r.link(initialMarkdown$, markdown$)
+  r.sub(initialMarkdown$, (md) => {
+    r.pubIn({
+      [initialMarkdownNormalize$]: true,
+      [markdown$]: md
+    })
+  })
 })
 
 const mutableMarkdownSignal$ = Signal<string>((r) => {
@@ -549,6 +552,7 @@ export const createRootEditorSubscription$ = Appender(rootEditorSubscriptions$, 
         })
 
         r.pub(markdown$, theNewMarkdownValue.trim())
+        r.pub(initialMarkdownNormalize$, false)
       })
     },
     (rootEditor) => {
@@ -691,6 +695,15 @@ export const topAreaChildren$ = Cell<React.ComponentType[]>([])
  * @group Core
  */
 export const addTopAreaChild$ = Appender(topAreaChildren$)
+
+/** @internal */
+export const bottomAreaChildren$ = Cell<React.ComponentType[]>([])
+
+/**
+ * Lets you add React components below the editor.
+ * @group Core
+ */
+export const addBottomAreaChild$ = Appender(bottomAreaChildren$)
 
 /** @internal */
 export const editorWrappers$ = Cell<React.ComponentType<{ children: React.ReactNode }>[]>([])
@@ -860,7 +873,7 @@ export const corePlugin = realmPlugin<{
   spellCheck: boolean
   placeholder?: React.ReactNode
   autoFocus: boolean | { defaultSelection?: 'rootStart' | 'rootEnd'; preventScroll?: boolean | undefined }
-  onChange: (markdown: string) => void
+  onChange: (markdown: string, initialMarkdownNormalize: boolean) => void
   onBlur?: (e: FocusEvent) => void
   onError?: (payload: { error: string; source: string }) => void
   toMarkdownOptions: NonNullable<LexicalConvertOptions['toMarkdownOptions']>
@@ -905,7 +918,9 @@ export const corePlugin = realmPlugin<{
     })
 
     r.singletonSub(markdownErrorSignal$, params?.onError)
-    r.singletonSub(mutableMarkdownSignal$, params?.onChange)
+    r.singletonSub(mutableMarkdownSignal$, (value) => {
+      params?.onChange(value, r.getValue(initialMarkdownNormalize$))
+    })
     r.singletonSub(onBlur$, params?.onBlur)
 
     // Use the JSX extension to parse HTML
@@ -964,7 +979,9 @@ export const corePlugin = realmPlugin<{
       [readOnly$]: params?.readOnly
     })
 
-    realm.singletonSub(mutableMarkdownSignal$, params?.onChange)
+    realm.singletonSub(mutableMarkdownSignal$, (value) => {
+      params?.onChange(value, realm.getValue(initialMarkdownNormalize$))
+    })
     realm.singletonSub(onBlur$, params?.onBlur)
     realm.singletonSub(markdownErrorSignal$, params?.onError)
   }

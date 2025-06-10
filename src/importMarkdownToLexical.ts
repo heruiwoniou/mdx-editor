@@ -2,12 +2,25 @@
 import { ElementNode, LexicalNode } from 'lexical'
 import * as Mdast from 'mdast'
 import { fromMarkdown, type Options } from 'mdast-util-from-markdown'
+import { MdxjsEsm } from 'mdast-util-mdx'
 import { toMarkdown } from 'mdast-util-to-markdown'
 import { ParseOptions } from 'micromark-util-types'
 import { FORMAT } from './FormatConstants'
-import { JsxComponentDescriptor } from './plugins/jsx'
-import { DirectiveDescriptor } from './plugins/directives'
 import { CodeBlockEditorDescriptor } from './plugins/codeblock'
+import { DirectiveDescriptor } from './plugins/directives'
+import { JsxComponentDescriptor } from './plugins/jsx'
+
+export interface ImportStatement {
+  source: string
+  defaultExport: boolean
+}
+
+/**
+ * Metadata that is provided to the visitors
+ */
+interface MetaData {
+  importDeclarations: Record<string, ImportStatement>
+}
 
 /**
  * The registered descriptors for composite nodes (jsx, directives, code blocks).
@@ -30,9 +43,9 @@ export interface MdastImportVisitor<UN extends Mdast.Nodes> {
   /**
    * The test function that determines if this visitor should be used for the given node.
    * As a convenience, you can also pass a string here, which will be compared to the node's type.
-   * @param options - the registered descriptors for composite nodes (jsx, directives, code blocks).
+   * @param descriptors - the registered descriptors for composite nodes (jsx, directives, code blocks).
    */
-  testNode: ((mdastNode: Mdast.Nodes, options: Descriptors) => boolean) | string
+  testNode: ((mdastNode: Mdast.Nodes, descriptors: Descriptors) => boolean) | string
   visitNode(params: {
     /**
      * The node that is currently being visited.
@@ -46,6 +59,14 @@ export interface MdastImportVisitor<UN extends Mdast.Nodes> {
      * The parent lexical node to which the results of the processing should be added.
      */
     lexicalParent: LexicalNode
+    /**
+     * The descriptors for composite nodes (jsx, directives, code blocks).
+     */
+    descriptors: Descriptors
+    /**
+     * metaData: context data provided from the import visitor.
+     */
+    metaData: MetaData
     /**
      * A set of convenience utilities that can be used to add nodes to the lexical tree.
      */
@@ -75,6 +96,15 @@ export interface MdastImportVisitor<UN extends Mdast.Nodes> {
        * Access the current formatting context.
        */
       getParentFormatting(): number
+      /**
+       * Adds styling as a context for the current node and its children.
+       * This is necessary due to mdast treating styling as a node, while lexical considering it an attribute of a node.
+       */
+      addStyle(style: string, node?: Mdast.Parent | null): void
+      /**
+       * Access the current style context.
+       */
+      getParentStyle(): string
     }
   }): void
   /**
@@ -134,13 +164,41 @@ export class MarkdownParseError extends Error {
 }
 
 /**
- * An error that gets thrown when the Markdown parsing encounters an node that has no corresponding {@link MdastImportVisitor}.
+ * An error that gets thrown when the Markdown parsing encounters a node that has no corresponding {@link MdastImportVisitor}.
  * @group Markdown Processing
  */
 export class UnrecognizedMarkdownConstructError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'UnrecognizedMarkdownConstructError'
+  }
+}
+
+function gatherMetadata(mdastNode: Mdast.RootContent | Mdast.Root): MetaData {
+  const importsMap = new Map<string, ImportStatement>()
+  if (mdastNode.type !== 'root') {
+    return {
+      importDeclarations: {}
+    }
+  }
+  const importStatements = mdastNode.children
+    .filter((n) => n.type === 'mdxjsEsm')
+    .filter((n) => (n as MdxjsEsm).value.startsWith('import ')) as MdxjsEsm[]
+  importStatements.forEach((imp) => {
+    ;(imp.data?.estree?.body ?? []).forEach((declaration) => {
+      if (declaration.type !== 'ImportDeclaration') {
+        return
+      }
+      declaration.specifiers.forEach((specifier) => {
+        importsMap.set(specifier.local.name, {
+          source: `${declaration.source.value}`,
+          defaultExport: specifier.type === 'ImportDefaultSpecifier'
+        })
+      })
+    })
+  })
+  return {
+    importDeclarations: Object.fromEntries(importsMap.entries())
   }
 }
 
@@ -182,6 +240,8 @@ export function importMarkdownToLexical({
 /** @internal */
 export function importMdastTreeToLexical({ root, mdastRoot, visitors, ...descriptors }: MdastTreeImportOptions): void {
   const formattingMap = new WeakMap<Mdast.Parent, number>()
+  const styleMap = new WeakMap<Mdast.Parent, string>()
+  const metaData: MetaData = gatherMetadata(mdastRoot)
 
   visitors = visitors.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
 
@@ -219,6 +279,8 @@ export function importMdastTreeToLexical({ root, mdastRoot, visitors, ...descrip
       mdastNode,
       lexicalParent,
       mdastParent,
+      descriptors,
+      metaData,
       actions: {
         visitChildren,
         addAndStepInto(lexicalNode) {
@@ -249,6 +311,19 @@ export function importMdastTreeToLexical({ root, mdastRoot, visitors, ...descrip
         },
         getParentFormatting() {
           return formattingMap.get(mdastParent!) ?? 0
+        },
+        addStyle(style, node) {
+          if (!node) {
+            if (isParent(mdastNode)) {
+              node = mdastNode
+            }
+          }
+          if (node) {
+            styleMap.set(node, style) // TODO: merge style,  | (styleMap.get(mdastParent!) ?? 0)
+          }
+        },
+        getParentStyle() {
+          return styleMap.get(mdastParent!) ?? ''
         }
       }
     })

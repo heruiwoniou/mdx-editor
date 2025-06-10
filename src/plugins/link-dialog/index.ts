@@ -1,6 +1,8 @@
-import { $createLinkNode, $isLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
+import { $createLinkNode, $isLinkNode, LinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link'
+import { Action, Cell, Signal, filter, map, withLatestFrom } from '@mdxeditor/gurx'
 import {
   $createTextNode,
+  $getNearestNodeFromDOMNode,
   $getSelection,
   $insertNodes,
   $isRangeSelection,
@@ -10,12 +12,12 @@ import {
   KEY_MODIFIER_COMMAND,
   RangeSelection
 } from 'lexical'
+import { realmPlugin } from '../../RealmWithPlugins'
 import { IS_APPLE } from '../../utils/detectMac'
 import { getSelectedNode, getSelectionRectangle } from '../../utils/lexicalHelpers'
-import { activeEditor$, addComposerChild$, createActiveEditorSubscription$, currentSelection$, readOnly$ } from '../core'
+import { activeEditor$, addComposerChild$, createActiveEditorSubscription$, currentSelection$, readOnly$, viewMode$ } from '../core'
 import { LinkDialog } from './LinkDialog'
-import { Action, Cell, Signal, filter, map, withLatestFrom } from '@mdxeditor/gurx'
-import { realmPlugin } from '../../RealmWithPlugins'
+import { $findMatchingParent } from '@lexical/utils'
 
 /**
  * Describes the boundaries of the current selection so that the link dialog can position itself accordingly.
@@ -100,6 +102,12 @@ export const linkDialogState$ = Cell<InactiveLinkDialog | PreviewLinkDialog | Ed
       },
       COMMAND_PRIORITY_LOW
     )
+  })
+
+  r.sub(r.pipe(viewMode$), (viewMode) => {
+    if (viewMode !== 'rich-text') {
+      r.pub(linkDialogState$, { type: 'inactive' })
+    }
   })
 
   r.pub(createActiveEditorSubscription$, (editor) => {
@@ -226,12 +234,18 @@ export const linkDialogState$ = Cell<InactiveLinkDialog | PreviewLinkDialog | Ed
           const node = getLinkNodeInSelection(selection)
 
           if (node) {
+            const rect = getSelectionRectangle(activeEditor)
+
+            if (!rect) {
+              return { type: 'inactive' } as InactiveLinkDialog
+            }
+
             return {
               type: 'preview',
               url: node.getURL(),
               linkNodeKey: node.getKey(),
               title: node.getTitle(),
-              rectangle: getSelectionRectangle(activeEditor)
+              rectangle: rect
             } as PreviewLinkDialog
           } else {
             return { type: 'inactive' } as InactiveLinkDialog
@@ -290,30 +304,33 @@ export const openLinkEditDialog$ = Action((r) => {
     ),
     ([, selection, editor]) => {
       editor?.focus(() => {
-        editor.getEditorState().read(() => {
-          const node = getLinkNodeInSelection(selection)
-          const rectangle = getSelectionRectangle(editor)!
-          if (node) {
-            r.pub(linkDialogState$, {
-              type: 'edit',
-              initialUrl: node.getURL(),
-              initialTitle: node.getTitle() ?? '',
-              url: node.getURL(),
-              title: node.getTitle() ?? '',
-              linkNodeKey: node.getKey(),
-              rectangle
-            })
-          } else {
-            r.pub(linkDialogState$, {
-              type: 'edit',
-              initialUrl: '',
-              initialTitle: '',
-              title: '',
-              url: '',
-              linkNodeKey: '',
-              rectangle
-            })
-          }
+        // needs to be done due to a change in v0.22
+        setTimeout(() => {
+          editor.getEditorState().read(() => {
+            const node = getLinkNodeInSelection(selection)
+            const rectangle = getSelectionRectangle(editor)!
+            if (node) {
+              r.pub(linkDialogState$, {
+                type: 'edit',
+                initialUrl: node.getURL(),
+                initialTitle: node.getTitle() ?? '',
+                url: node.getURL(),
+                title: node.getTitle() ?? '',
+                linkNodeKey: node.getKey(),
+                rectangle
+              })
+            } else {
+              r.pub(linkDialogState$, {
+                type: 'edit',
+                initialUrl: '',
+                initialTitle: '',
+                title: '',
+                url: '',
+                linkNodeKey: '',
+                rectangle
+              })
+            }
+          })
         })
       })
     }
@@ -325,8 +342,39 @@ export const linkAutocompleteSuggestions$ = Cell<string[]>([])
 
 export type ClickLinkCallback = (url: string) => void
 
+export type ReadOnlyClickLinkCallback = (event: MouseEvent, node: LinkNode, url: string) => void
+
 /** @internal */
 export const onClickLinkCallback$ = Cell<ClickLinkCallback | null>(null)
+
+/** @internal */
+export const onReadOnlyClickLinkCallback$ = Cell<ReadOnlyClickLinkCallback | null>(null, (r) => {
+  r.pub(createActiveEditorSubscription$, (editor) => {
+    function onClick(event: MouseEvent) {
+      const [readOnly, callback] = r.getValues([readOnly$, onReadOnlyClickLinkCallback$])
+      if (!readOnly || callback === null) {
+        return
+      }
+      editor.update(() => {
+        const nearestNode = $getNearestNodeFromDOMNode(event.target as Element)
+        if (nearestNode !== null) {
+          const targetNode = $findMatchingParent(nearestNode, (node) => node instanceof LinkNode) as LinkNode | null
+          if (targetNode !== null) {
+            callback(event, targetNode, targetNode.getURL())
+          }
+        }
+      })
+    }
+    return editor.registerRootListener((rootElement, prevRoot) => {
+      if (rootElement) {
+        rootElement.addEventListener('click', onClick)
+      }
+      if (prevRoot) {
+        prevRoot.removeEventListener('click', onClick)
+      }
+    })
+  })
+})
 
 /**
  * @group Link Dialog
@@ -344,10 +392,16 @@ export const linkDialogPlugin = realmPlugin<{
    * If set, clicking on the link in the preview popup will call this callback instead of opening the link.
    */
   onClickLinkCallback?: ClickLinkCallback
+
+  /**
+   * Invoked when a link is clicked in read-only mode
+   */
+  onReadOnlyClickLinkCallback?: ReadOnlyClickLinkCallback
 }>({
   init(r, params) {
     r.pub(addComposerChild$, params?.LinkDialog ?? LinkDialog)
     r.pub(onClickLinkCallback$, params?.onClickLinkCallback ?? null)
+    r.pub(onReadOnlyClickLinkCallback$, params?.onReadOnlyClickLinkCallback ?? null)
   },
   update(r, params = {}) {
     r.pub(linkAutocompleteSuggestions$, params.linkAutocompleteSuggestions ?? [])

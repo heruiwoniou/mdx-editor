@@ -94,7 +94,7 @@ export const ToggleSingleGroupWithItem = React.forwardRef<
       value={on ? 'on' : 'off'}
       ref={forwardedRef}
     >
-      <ToolbarToggleItem title={title} value="on" disabled={disabled}>
+      <ToolbarToggleItem aria-label={title} value="on" disabled={disabled}>
         <TooltipWrap title={title}>{children}</TooltipWrap>
       </ToolbarToggleItem>
     </RadixToolbar.ToggleGroup>
@@ -141,6 +141,7 @@ export const SingleChoiceToggleGroup = <T extends string>({
   value,
   onChange,
   className,
+  ggClassName,
   items
 }: {
   items: {
@@ -150,12 +151,13 @@ export const SingleChoiceToggleGroup = <T extends string>({
   }[]
   onChange: (value: T | '') => void
   value: T | ''
+  ggClassName?: string
   className?: string
 }) => {
   const t = useTranslation()
 
   return (
-    <div className={styles.toolbarGroupOfGroups}>
+    <div className={classNames(styles.toolbarGroupOfGroups, ggClassName)}>
       <RadixToolbar.ToggleGroup
         aria-label={t('toolbar.toggleGroup', 'toggle group')}
         type="single"

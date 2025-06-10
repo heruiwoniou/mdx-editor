@@ -16,14 +16,14 @@ import {
   rootEditor$,
   setMarkdown$,
   topAreaChildren$,
+  bottomAreaChildren$,
   useTranslation,
   viewMode$,
   contentEditableRef$
 } from './plugins/core'
 
-import { ContentEditable } from '@lexical/react/LexicalContentEditable.js'
-import LexicalErrorBoundary from '@lexical/react/LexicalErrorBoundary.js'
-import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin.js'
+import { ContentEditable } from '@lexical/react/LexicalContentEditable'
+import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin'
 import classNames from 'classnames'
 import { ToMarkdownOptions } from './exportMarkdownFromLexical'
 import { lexicalTheme } from './styles/lexicalTheme'
@@ -32,6 +32,7 @@ import { noop } from './utils/fp'
 import { createLexicalComposerContext, LexicalComposerContext, LexicalComposerContextType } from '@lexical/react/LexicalComposerContext'
 import { EditorThemeClasses, LexicalEditor } from 'lexical'
 import { IconKey, defaultSvgIcons } from './defaultSvgIcons'
+import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary'
 
 const LexicalProvider: React.FC<{
   children: JSX.Element | string | (JSX.Element | string)[]
@@ -51,14 +52,16 @@ const RichTextEditor: React.FC = () => {
     setContentEditableRef({ current: _contentEditableRef })
   }
 
-  const [contentEditableClassName, spellCheck, composerChildren, topAreaChildren, editorWrappers, placeholder] = useCellValues(
-    contentEditableClassName$,
-    spellCheck$,
-    composerChildren$,
-    topAreaChildren$,
-    editorWrappers$,
-    placeholder$
-  )
+  const [contentEditableClassName, spellCheck, composerChildren, topAreaChildren, editorWrappers, placeholder, bottomAreaChildren] =
+    useCellValues(
+      contentEditableClassName$,
+      spellCheck$,
+      composerChildren$,
+      topAreaChildren$,
+      editorWrappers$,
+      placeholder$,
+      bottomAreaChildren$
+    )
   return (
     <>
       {topAreaChildren.map((Child, index) => (
@@ -86,6 +89,9 @@ const RichTextEditor: React.FC = () => {
         </div>
       </RenderRecursiveWrappers>
       {composerChildren.map((Child, index) => (
+        <Child key={index} />
+      ))}
+      {bottomAreaChildren.map((Child, index) => (
         <Child key={index} />
       ))}
     </>
@@ -165,7 +171,8 @@ const RenderRecursiveWrappers: React.FC<{
 const EditorRootElement: React.FC<{
   children: React.ReactNode
   className?: string
-}> = ({ children, className }) => {
+  overlayContainer?: HTMLElement | null
+}> = ({ children, className, overlayContainer }) => {
   const editorRootElementRef = React.useRef<HTMLDivElement | null>(null)
   const setEditorRootElementRef = usePublisher(editorRootElementRef$)
 
@@ -177,13 +184,14 @@ const EditorRootElement: React.FC<{
       styles.popupContainer,
       ...(className ?? '').trim().split(' ').filter(Boolean)
     )
-    document.body.appendChild(popupContainer)
+    const container = overlayContainer ?? document.body
+    container.appendChild(popupContainer)
     editorRootElementRef.current = popupContainer
     setEditorRootElementRef(editorRootElementRef)
     return () => {
       popupContainer.remove()
     }
-  }, [className, editorRootElementRef, setEditorRootElementRef])
+  }, [className, editorRootElementRef, overlayContainer, setEditorRootElementRef])
   return <div className={classNames('mdxeditor', styles.editorRoot, styles.editorWrapper, className)}>{children}</div>
 }
 
@@ -234,7 +242,7 @@ export interface MDXEditorProps {
    */
   contentEditableClassName?: string
   /**
-   * Controls the spellCheck value for the content editable element of the eitor.
+   * Controls the spellCheck value for the content editable element of the editor.
    * Defaults to true, use false to disable spell checking.
    */
   spellCheck?: boolean
@@ -246,8 +254,9 @@ export interface MDXEditorProps {
   /**
    * Triggered when the editor value changes. The callback is not throttled, you can use any throttling mechanism
    * if you intend to do auto-saving.
+   * @param initialMarkdownNormalize - set to true if the change is triggered when the initial markdown is set. This can happen due to variety of reasons - for example, additional whitespace, bullet symbols different than the configured ones, etc.
    */
-  onChange?: (markdown: string) => void
+  onChange?: (markdown: string, initialMarkdownNormalize: boolean) => void
   /**
    * Triggered when the markdown parser encounters an error. The payload includes the invalid source and the error message.
    */
@@ -262,8 +271,7 @@ export interface MDXEditorProps {
    */
   plugins?: RealmPlugin[]
   /**
-   * The class name to apply to the root component element. Use this if you want to change the editor dimensions, maximum height, etc.
-   * For a content-specific styling, Use `contentEditableClassName` property.
+   * The class name to apply to the root component element, including the toolbar and the popups. For styling the content editable area,  Use `contentEditableClassName` property.
    */
   className?: string
   /**
@@ -288,7 +296,7 @@ export interface MDXEditorProps {
    */
   iconComponentFor?: (name: IconKey) => JSX.Element
   /**
-   * Set to false if you want to suppress the processing of HTML tags.
+   * Set to true if you want to suppress the processing of HTML tags.
    */
   suppressHtmlProcessing?: boolean
   /**
@@ -304,6 +312,12 @@ export interface MDXEditorProps {
    * A custom lexical theme to use for the editor.
    */
   lexicalTheme?: EditorThemeClasses
+
+  /**
+   * Optional container element to use for rendering editor popups.
+   * Defaults to document.body.
+   */
+  overlayContainer?: HTMLElement | null
 }
 
 /**
@@ -334,7 +348,7 @@ export const MDXEditor = React.forwardRef<MDXEditorMethods, MDXEditorProps>((pro
         ...(props.plugins ?? [])
       ]}
     >
-      <EditorRootElement className={props.className}>
+      <EditorRootElement className={props.className} overlayContainer={props.overlayContainer}>
         <LexicalProvider>
           <RichTextEditor />
         </LexicalProvider>
