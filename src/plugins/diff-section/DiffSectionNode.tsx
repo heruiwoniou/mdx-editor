@@ -69,6 +69,10 @@ export class DiffSectionNode extends DecoratorNode<JSX.Element> {
     }
   }
 
+  getTextContent(): string {
+    return this.__source
+  }
+
   /** @internal */
   exportDOM(): DOMExportOutput {
     const element = document.createElement('span')

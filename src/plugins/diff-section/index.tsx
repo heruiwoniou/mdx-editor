@@ -9,7 +9,8 @@ import {
   addSyntaxExtension$,
   addToMarkdownExtension$,
   addComposerChild$,
-  activeEditor$
+  activeEditor$,
+  inFocus$
 } from '../core'
 import { LexicalDiffSectionVisitor } from '@/plugins/diff-section/LexicalDiffSectionVisitor'
 import { MdastDiffSectionVisitor } from '@/plugins/diff-section/MdastDiffSectionVisitor'
@@ -154,39 +155,7 @@ export function DiffSectionDecorate({
   diff: string
   nodeKey: string
 }): JSX.Element {
-  const [editor] = useLexicalComposerContext()
   const elementRef = useRef<HTMLSpanElement>(null)
-  const activeDiffSection = usePublisher(activeDiffSection$)
-  const disableDiffSection = usePublisher(disableDiffSection$)
-  const [isSelect, setAsRange] = useLexicalNodeSelection(nodeKey)
-
-  useLayoutEffect(() => {
-    if (isSelect) {
-      activeDiffSection(uuid)
-    } else {
-      disableDiffSection()
-    }
-  }, [activeDiffSection, disableDiffSection, isSelect, uuid])
-
-  useEffect(() => {
-    function ClickHandler(e: MouseEvent) {
-      const target = e.target as HTMLSpanElement
-      if (target.classList.contains('inline-diffsection')) {
-        const wrapper = target.closest('.diffsection__container') ?? target
-        if (wrapper === elementRef.current) {
-          activeDiffSection(wrapper.id)
-          setAsRange(true)
-          return true
-        }
-      } else {
-        disableDiffSection()
-        return false
-      }
-      return false
-    }
-
-    return mergeRegister(editor.registerCommand(CLICK_COMMAND, ClickHandler, COMMAND_PRIORITY_LOW))
-  }, [activeDiffSection, disableDiffSection, editor, setAsRange])
 
   return (
     <span
@@ -216,7 +185,10 @@ export function DiffSectionDecorate({
 }
 
 function FloatingTooltip() {
+  const [editor] = useLexicalComposerContext()
   const diffSectionState = useCellValue(diffSectionState$)
+  const acceptDiffSection = usePublisher(acceptDiffSection$)
+  const rejectDiffSection = usePublisher(rejectDiffSection$)
 
   return (
     <Popover.Root open={diffSectionState.active}>
@@ -245,8 +217,24 @@ function FloatingTooltip() {
                 color: 'white'
               }}
             >
-              <div style={{ padding: 2, backgroundColor: 'green', cursor: 'pointer' }}>Accept (Y)</div>
-              <div style={{ padding: 2, backgroundColor: 'red', cursor: 'pointer' }}>Reject (N)</div>
+              <div
+                style={{ padding: 2, backgroundColor: 'green', cursor: 'pointer' }}
+                onClick={() => {
+                  editor.update(() => {
+                    acceptDiffSection()
+                  })
+                }}
+              >
+                Accept (Y)
+              </div>
+              <div
+                style={{ padding: 2, backgroundColor: 'red', cursor: 'pointer' }}
+                onClick={() => {
+                  rejectDiffSection()
+                }}
+              >
+                Reject (N)
+              </div>
             </div>
           </div>
         </Popover.Content>
@@ -262,12 +250,13 @@ function Initialize() {
   const disableDiffSection = usePublisher(disableDiffSection$)
   const accept = usePublisher(acceptDiffSection$)
   const reject = usePublisher(rejectDiffSection$)
+  const isFocus = useCellValue(inFocus$)
 
   useEffect(() => {
     const destroies: (() => void)[] = []
     function handleMouseOver(e: MouseEvent) {
       const el = e.target as HTMLSpanElement
-      if (el.classList.contains('inline-diffsection')) {
+      if (el.classList.contains('inline-diffsection') && isFocus) {
         const wrapper = el.closest('.diffsection__container') ?? el
         activeDiffSection(wrapper.id)
       } else {
@@ -304,7 +293,7 @@ function Initialize() {
         destroy()
       })
     })
-  }, [accept, activeDiffSection, diffSectionState.active, disableDiffSection, editor, reject])
+  }, [accept, activeDiffSection, diffSectionState.active, disableDiffSection, editor, isFocus, reject])
 
   return <FloatingTooltip />
 }
